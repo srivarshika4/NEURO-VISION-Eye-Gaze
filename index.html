@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>NEURO-VISION Eye Gaze Detection</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            background: #111827;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        h1 {
+            margin: 20px 10px;
+        }
+
+        .camera {
+            position: relative;
+            width: 95%;
+            max-width: 700px;
+            margin: auto;
+        }
+
+        video, canvas {
+            width: 100%;
+            border-radius: 15px;
+        }
+
+        canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+
+        #gaze {
+            font-size: 25px;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+
+        #command {
+            font-size: 22px;
+            margin-top: 10px;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 15px 25px;
+            font-size: 18px;
+            border-radius: 10px;
+            border: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>NEURO-VISION</h1>
+<p>AI-Based Eye Gaze Detection</p>
+
+<div class="camera">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+</div>
+
+<div id="gaze">GAZE: Waiting...</div>
+<div id="command">COMMAND: STOP</div>
+
+<button onclick="startCamera()">Start Camera</button>
+
+<script>
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const gazeText = document.getElementById("gaze");
+const commandText = document.getElementById("command");
+
+let faceMesh;
+
+function startCamera() {
+
+    navigator.mediaDevices.getUserMedia({
+        video: true
+    })
+    .then(stream => {
+        video.srcObject = stream;
+    })
+    .catch(error => {
+        alert("Camera permission is required.");
+        console.log(error);
+    });
+}
+
+faceMesh = new FaceMesh({
+    locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+    }
+});
+
+faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+});
+
+faceMesh.onResults(onResults);
+
+async function detectFace() {
+
+    if (video.readyState >= 2) {
+        await faceMesh.send({image: video});
+    }
+
+    requestAnimationFrame(detectFace);
+}
+
+function onResults(results) {
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    if (!results.multiFaceLandmarks ||
+        results.multiFaceLandmarks.length === 0) {
+
+        gazeText.innerHTML = "GAZE: NO FACE";
+        commandText.innerHTML = "COMMAND: STOP";
+
+        return;
+    }
+
+    const landmarks =
+        results.multiFaceLandmarks[0];
+
+    /*
+       MediaPipe iris landmarks
+       Left iris: 474-477
+       Right iris: 469-472
+    */
+
+    const leftIris = [474,475,476,477];
+    const rightIris = [469,470,471,472];
+
+    leftIris.forEach(i => {
+        drawPoint(landmarks[i]);
+    });
+
+    rightIris.forEach(i => {
+        drawPoint(landmarks[i]);
+    });
+
+    const leftX = averageX(
+        landmarks,
+        leftIris
+    );
+
+    const rightX = averageX(
+        landmarks,
+        rightIris
+    );
+
+    const eyePosition =
+        (leftX + rightX) / 2;
+
+    let gaze;
+    let command;
+
+    /*
+       Basic gaze classification
+    */
+
+    if (eyePosition < 0.43) {
+
+        gaze = "LOOKING LEFT";
+        command = "TURN LEFT";
+
+    }
+    else if (eyePosition > 0.57) {
+
+        gaze = "LOOKING RIGHT";
+        command = "TURN RIGHT";
+
+    }
+    else {
+
+        gaze = "LOOKING CENTER";
+        command = "FORWARD";
+    }
+
+    gazeText.innerHTML =
+        "GAZE: " + gaze;
+
+    commandText.innerHTML =
+        "COMMAND: " + command;
+}
+
+function averageX(landmarks, indexes) {
+
+    let total = 0;
+
+    indexes.forEach(i => {
+        total += landmarks[i].x;
+    });
+
+    return total / indexes.length;
+}
+
+function drawPoint(point) {
+
+    const x =
+        point.x * canvas.width;
+
+    const y =
+        point.y * canvas.height;
+
+    ctx.beginPath();
+
+    ctx.arc(
+        x,
+        y,
+        5,
+        0,
+        2 * Math.PI
+    );
+
+    ctx.fillStyle = "lime";
+    ctx.fill();
+}
+
+video.addEventListener(
+    "loadeddata",
+    () => {
+        detectFace();
+    }
+);
+
+</script>
+
+</body>
+</html>
